@@ -51,6 +51,6 @@ export function shareUrl(key: string): string {
   const base =
     typeof window !== "undefined"
       ? window.location.origin
-      : process.env.NEXT_PUBLIC_SITE_URL ?? "https://lovetap.vercel.app";
+      : process.env.NEXT_PUBLIC_SITE_URL ?? "https://lovetap-psi.vercel.app";
   return `${base}/q/${key}`;
 }

@@ -38,9 +38,27 @@ npm run build      # 프로덕션 빌드 확인
 cp .env.example .env.local
 ```
 
-- `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-  — 없으면 앱은 localStorage 기반 로컬 모드로 동작합니다.
-- `NEXT_PUBLIC_SITE_URL` — OG 메타·공유 링크 기준 주소 (기본값 https://lovetap.vercel.app)
+- `NEXT_PUBLIC_SUPABASE_URL` — 있으면 서버 DB 모드, 없으면 localStorage 기반 로컬 모드.
+- `SUPABASE_SERVICE_ROLE_KEY` — **서버 전용**. Route Handler(`/api/quizzes/...`)가
+  이 키로만 테이블에 접근합니다. `NEXT_PUBLIC_` 접두사를 절대 붙이지 마세요.
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` — 더 이상 테이블 접근에 쓰이지 않습니다(RLS가 anon 전면 차단).
+- `NEXT_PUBLIC_SITE_URL` — OG 메타·공유 링크 기준 주소 (기본값 https://lovetap-psi.vercel.app)
+
+## API (서버 채점)
+
+브라우저는 Supabase에 직접 붙지 않습니다. 모든 DB 접근은 Route Handler에서 일어나고,
+정답(`quizzes.correct_choice`)과 `couples.secret_letter`는 응답에 포함되지 않습니다.
+
+| 메서드 | 경로 | 역할 |
+| --- | --- | --- |
+| POST | `/api/quizzes` | couples 1행 + quizzes 5행 저장 → `{ key }`(couples.id) |
+| GET | `/api/quizzes/[slug]` | 풀이용 문항(문구·선택지·순서만) |
+| POST | `/api/quizzes/[slug]/results` | 답안 제출 → 서버 채점·results 저장 → `{ score, matches, total, solvedAt }` |
+| GET | `/api/quizzes/[slug]/results` | 최신 결과 1건 |
+
+호출은 `src/lib/db.ts`가 담당합니다(`createCoupleQuiz` / `loadPublicQuiz` /
+`submitQuizAnswers` / `loadLatestResult`). `NEXT_PUBLIC_SUPABASE_URL`이 없으면
+`src/lib/store.ts`의 localStorage 모드로 폴백합니다.
 
 ## 데이터 — 실데이터 사용 중 ✅
 
@@ -51,14 +69,16 @@ cp .env.example .env.local
   문항 30개(데이트 & 취향 1–10 / 갈등 & 연락 11–20 / 상상 & 미래 21–30),
   카테고리 3개, 결과 티어 5개(퍼센트 기준: 100 / 80–99 / 60–79 / 40–59 / 0–39).
   각 티어에 title / description / share_caption 포함.
-- `supabase/schema.sql` — **실데이터 원본 그대로** (피클 제공).
-  테이블 3개(couples / quizzes / results) + RLS 정책(anon select/insert 공개).
-  커플당 출제 문항 5개, 정답은 `correct_choice` ('A'/'B'),
-  결과 점수는 0–100 퍼센트, 풀이 답안은 `partner_answers` JSONB
-  (예: `{"1": "A", "2": "B"}`).
-- `src/lib/db.ts` — 위 스키마에 맞춘 Supabase 연동 코드
-  (couples insert → quizzes 5행 insert → results insert, UUID 키 흐름).
-  환경변수가 없으면 `src/lib/store.ts`의 localStorage 모드로 폴백합니다.
+- `supabase/schema.sql` — 스키마 v2.
+  테이블 3개(couples / quizzes / results). `quizzes.question_id TEXT NOT NULL`에
+  출제 당시 문항 id를 저장하고, `question_text`/`choice_a`/`choice_b`도 사본으로 보관합니다
+  (문구를 나중에 고쳐도 이미 뿌린 링크가 깨지지 않음).
+  RLS는 **공개 정책 없음(기본 거부)** — anon·authenticated의 테이블 권한도 회수되어
+  service_role(서버)만 접근합니다. 커플당 문항 5개, 정답은 `correct_choice`('A'/'B'),
+  점수는 0–100 퍼센트, 답안은 `partner_answers` JSONB(question_id 기준, 예: `{"1":"A"}`).
+- `src/lib/db.ts` — `/api/...`를 호출하는 데이터 접근 계층
+  (출제 → 풀이 조회 → 답안 제출·채점 → 결과 조회).
+  `src/lib/quiz-core.ts`가 서버측 검증·채점·공개 응답 조립을 맡습니다.
 - `couples.photo_url` / `secret_letter` 컬럼은 스키마에 있으나 MVP 플로우에서는
   아직 사용하지 않습니다 (추후 사진·편지 기능용).
 
@@ -72,9 +92,8 @@ cp .env.example .env.local
 ## 다음 단계
 
 1. **Supabase 연결** — Supabase 프로젝트 생성 → `supabase/schema.sql`을 SQL
-   Editor에서 실행 → `.env.local`에 URL/anon 키 입력 → `npm run dev`로
-   출제→풀이→결과 흐름을 실제 DB로 테스트.
-   (연동 코드는 `src/lib/db.ts`에 이미 맞춰져 있음)
+   Editor에서 실행 → Vercel/.env.local에 `NEXT_PUBLIC_SUPABASE_URL`과
+   `SUPABASE_SERVICE_ROLE_KEY` 입력 → `npm run dev`로 출제→풀이→결과 흐름 확인.
 2. **GitHub push** — 로컬 git 레포는 초기화됨. GitHub에 빈 레포를 만든 뒤
    `git remote add origin <url>` → `git push -u origin main`.
 3. **Vercel 배포** — GitHub 레포 연결 → 환경변수 입력 → 배포 →

@@ -1,23 +1,9 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-
-// Supabase 클라이언트.
-// 환경변수(NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY)가 없으면
-// null을 반환하고, 앱은 localStorage 기반 로컬 모드로 동작한다.
-// 실제 키 연결은 다음 단계(.env.local에 키 입력 후 재배포)에서 활성화된다.
-let client: SupabaseClient | null | undefined;
-
-export function getSupabase(): SupabaseClient | null {
-  if (client !== undefined) return client;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anonKey) {
-    client = null;
-    return client;
-  }
-  client = createClient(url, anonKey);
-  return client;
-}
-
+// 앱이 "서버 DB 모드"인지 판단하는 플래그.
+// 브라우저는 이제 Supabase에 직접 붙지 않는다 — 테이블 접근은 Route Handler
+// (/api/quizzes/...)가 service_role 키로만 수행하고, RLS는 anon을 전면 거부한다.
+// 따라서 브라우저가 알아야 할 것은 "서버 API를 쓸 수 있는 배포인가"뿐이고,
+// 그 기준은 NEXT_PUBLIC_SUPABASE_URL의 존재 여부다.
+// (anon 키는 더 이상 테이블 접근에 쓸 수 없으므로 판단에 쓰지 않는다.)
 export function isSupabaseConfigured(): boolean {
-  return getSupabase() !== null;
+  return Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL);
 }

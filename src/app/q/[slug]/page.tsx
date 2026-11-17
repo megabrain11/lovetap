@@ -4,11 +4,8 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { getCategoryName, getQuestionById } from "@/lib/questions";
-import { loadQuizLocal, saveResultLocal } from "@/lib/store";
-import { loadCoupleQuiz, saveResult } from "@/lib/db";
-import { isSupabaseConfigured } from "@/lib/supabase";
-import { calcScore } from "@/lib/sync";
-import type { AnswerChoice, CoupleQuiz } from "@/lib/types";
+import { loadPublicQuiz, submitQuizAnswers } from "@/lib/db";
+import type { AnswerChoice, PublicQuiz } from "@/lib/types";
 
 export default function SolvePage() {
   return (
@@ -24,11 +21,17 @@ export default function SolvePage() {
   );
 }
 
+/** 문항 카테고리 라벨 — 공개 응답에는 없으므로 data/questions.json에서 찾아 표시만 한다. */
+function categoryLabel(questionId: string): string | null {
+  const question = getQuestionById(Number(questionId));
+  return question ? getCategoryName(question.category) : null;
+}
+
 function SolveContent() {
   const params = useParams();
   const key = params.slug as string;
   const router = useRouter();
-  const [quiz, setQuiz] = useState<CoupleQuiz | null | undefined>(undefined);
+  const [quiz, setQuiz] = useState<PublicQuiz | null | undefined>(undefined);
   const [answers, setAnswers] = useState<Record<string, AnswerChoice>>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -36,9 +39,9 @@ function SolveContent() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const loaded = isSupabaseConfigured()
-        ? await loadCoupleQuiz(key)
-        : loadQuizLocal(key);
+      // 서버 모드: GET /api/quizzes/[slug] — 정답은 내려오지 않는다.
+      // 로컬 모드: localStorage에 저장된 출제본.
+      const loaded = await loadPublicQuiz(key);
       if (!cancelled) setQuiz(loaded);
     })();
     return () => {
@@ -46,16 +49,11 @@ function SolveContent() {
     };
   }, [key]);
 
-  const questions = useMemo(
-    () =>
-      (quiz?.questionIds ?? [])
-        .map((id) => getQuestionById(id))
-        .filter((q): q is NonNullable<typeof q> => Boolean(q)),
-    [quiz],
-  );
+  const questions = useMemo(() => quiz?.questions ?? [], [quiz]);
 
   const answeredCount = useMemo(
-    () => questions.filter((q) => answers[String(q.id)]).length,
+    () =>
+      questions.filter((q) => answers[String(q.questionId)]).length,
     [questions, answers],
   );
 
@@ -63,29 +61,9 @@ function SolveContent() {
     if (!quiz) return;
     setSubmitting(true);
     setSubmitError(null);
-    const { matches, total, score } = calcScore(
-      quiz.creatorAnswers,
-      answers,
-      quiz.questionIds,
-    );
     try {
-      if (isSupabaseConfigured()) {
-        await saveResult(quiz.key, {
-          partnerAnswers: answers,
-          matches,
-          total,
-          score,
-        });
-      } else {
-        saveResultLocal({
-          key: quiz.key,
-          partnerAnswers: answers,
-          matches,
-          total,
-          score,
-          solvedAt: new Date().toISOString(),
-        });
-      }
+      // 채점은 서버가 quizzes.correct_choice로 수행하고 results에 저장한다.
+      await submitQuizAnswers(quiz.key, answers);
       router.push(`/result/${quiz.key}`);
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : "제출에 실패했어요.");
@@ -137,31 +115,38 @@ function SolveContent() {
       </p>
 
       <div className="mt-6 space-y-4">
-        {questions.map((q, i) => (
-          <article key={q.id} className="card-kitsch p-5">
-            <p className="text-xs font-bold text-ash">
-              Q{i + 1} · {getCategoryName(q.category)}
-            </p>
-            <h2 className="mt-1 text-lg font-black">{q.question}</h2>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              {(["A", "B"] as const).map((choice) => (
-                <button
-                  key={choice}
-                  onClick={() =>
-                    setAnswers((prev) => ({ ...prev, [String(q.id)]: choice }))
-                  }
-                  className={`rounded-xl border-2 px-3 py-3 text-sm font-bold ${
-                    answers[String(q.id)] === choice
-                      ? "border-ink bg-tang text-white"
-                      : "border-ink bg-white"
-                  }`}
-                >
-                  {choice === "A" ? q.choice_a : q.choice_b}
-                </button>
-              ))}
-            </div>
-          </article>
-        ))}
+        {questions.map((q, i) => {
+          const category = categoryLabel(q.questionId);
+          return (
+            <article key={q.questionId} className="card-kitsch p-5">
+              <p className="text-xs font-bold text-ash">
+                Q{i + 1}
+                {category ? ` · ${category}` : ""}
+              </p>
+              <h2 className="mt-1 text-lg font-black">{q.question}</h2>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                {(["A", "B"] as const).map((choice) => (
+                  <button
+                    key={choice}
+                    onClick={() =>
+                      setAnswers((prev) => ({
+                        ...prev,
+                        [q.questionId]: choice,
+                      }))
+                    }
+                    className={`rounded-xl border-2 px-3 py-3 text-sm font-bold ${
+                      answers[q.questionId] === choice
+                        ? "border-ink bg-tang text-white"
+                        : "border-ink bg-white"
+                    }`}
+                  >
+                    {choice === "A" ? q.choiceA : q.choiceB}
+                  </button>
+                ))}
+              </div>
+            </article>
+          );
+        })}
       </div>
 
       {submitError && (

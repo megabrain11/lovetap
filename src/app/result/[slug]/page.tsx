@@ -6,10 +6,9 @@ import Link from "next/link";
 import { toPng } from "html-to-image";
 import ResultCard from "@/components/ResultCard";
 import { getResultTier } from "@/lib/sync";
-import { loadQuizLocal, loadResultLocal, shareUrl } from "@/lib/store";
-import { loadCoupleQuiz, loadLatestResult } from "@/lib/db";
-import { isSupabaseConfigured } from "@/lib/supabase";
-import type { CoupleQuiz, QuizResult } from "@/lib/types";
+import { shareUrl } from "@/lib/store";
+import { loadLatestResult, loadPublicQuiz } from "@/lib/db";
+import type { PublicQuiz, QuizResult } from "@/lib/types";
 
 export default function ResultPage() {
   return (
@@ -29,7 +28,7 @@ function ResultContent() {
   const params = useParams();
   const key = params.slug as string;
   const cardRef = useRef<HTMLDivElement>(null);
-  const [quiz, setQuiz] = useState<CoupleQuiz | null | undefined>(undefined);
+  const [quiz, setQuiz] = useState<PublicQuiz | null | undefined>(undefined);
   const [result, setResult] = useState<QuizResult | null | undefined>(
     undefined,
   );
@@ -40,9 +39,10 @@ function ResultContent() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [q, r] = isSupabaseConfigured()
-        ? await Promise.all([loadCoupleQuiz(key), loadLatestResult(key)])
-        : [loadQuizLocal(key), loadResultLocal(key)];
+      const [q, r] = await Promise.all([
+        loadPublicQuiz(key),
+        loadLatestResult(key),
+      ]);
       if (!cancelled) {
         setQuiz(q);
         setResult(r);

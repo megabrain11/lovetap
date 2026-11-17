@@ -4,10 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getCategoryName, pickQuestions } from "@/lib/questions";
-import { makeSlug, saveQuizLocal, shareUrl } from "@/lib/store";
+import { shareUrl } from "@/lib/store";
 import { createCoupleQuiz } from "@/lib/db";
 import { isSupabaseConfigured } from "@/lib/supabase";
-import type { AnswerChoice, CoupleQuiz, Question } from "@/lib/types";
+import type { AnswerChoice, Question, QuizDraft } from "@/lib/types";
 
 export default function CreatePage() {
   const router = useRouter();
@@ -43,7 +43,7 @@ export default function CreatePage() {
     setSaveError(null);
     const creator = creatorName.trim() || "나";
     const partner = partnerName.trim() || "상대";
-    const base: Omit<CoupleQuiz, "key" | "createdAt"> = {
+    const draft: QuizDraft = {
       coupleName: `${creator} & ${partner}`,
       creatorName: creator,
       partnerName: partner,
@@ -51,16 +51,11 @@ export default function CreatePage() {
       creatorAnswers: answers,
     };
     try {
-      if (isSupabaseConfigured()) {
-        // Supabase 모드: couples 행 + quizzes 행 5개 insert, key = couples.id(UUID)
-        const coupleId = await createCoupleQuiz(base);
-        setKey(coupleId);
-      } else {
-        // 로컬 모드: localStorage에 저장, key = lovetap-xxxxxx slug
-        const slug = makeSlug();
-        saveQuizLocal({ ...base, key: slug, createdAt: new Date().toISOString() });
-        setKey(slug);
-      }
+      // 서버 모드: POST /api/quizzes(couples 1행 + quizzes 5행, key = couples.id UUID)
+      // 로컬 모드: localStorage 저장(key = lovetap-xxxxxx slug)
+      // 분기는 src/lib/db.ts가 담당한다.
+      const key = await createCoupleQuiz(draft);
+      setKey(key);
       setStep("done");
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : "저장에 실패했어요.");
